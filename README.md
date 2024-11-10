@@ -42,14 +42,12 @@ cd <repository-directory>
 Run the following command to build the project:
 
 ```bash
-Copy code
 cargo build --release
 ```
 ### 4. Run the Project
 Once the project is built, you can run it using the following command:
 
 ```bash
-Copy code
 cargo run
 ```
 ### 5. View the Results
@@ -57,7 +55,6 @@ The program will load the training and test datasets, load the pretrained weight
 
 File Structure
 ```bash
-Copy code
 /src
   main.rs           - Main code implementing the neural network and data processing.
   /weights.dat      - Pretrained weights and biases.
