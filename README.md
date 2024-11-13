@@ -35,8 +35,8 @@ If you haven't installed Rust yet, you can do so by following the instructions a
 
 ### 2. Clone the Repository
 ```bash
-git clone <repository-url>
-cd <repository-directory>
+git clone github.com/DeathSurfing/MLP-From-Scratch
+cd MLP-From-Scratch
 ```
 ### 3. Build the Project
 Run the following command to build the project:
