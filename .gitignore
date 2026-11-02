@@ -10,7 +10,6 @@
 /.cargo/*
 
 # Rust dependency directory
-/Cargo.lock
 
 # Executables
 **/*.exe
