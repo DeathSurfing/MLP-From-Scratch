@@ -106,6 +106,9 @@ impl Network {
     }
 
     fn accuracy(&self, data: &[Vec<f32>], labels: &[u8]) -> f32 {
+        if data.is_empty() {
+            return 0.0;
+        }
         let mut correct = 0usize;
         for (input, &label) in data.iter().zip(labels.iter()) {
             if self.predict(input) == label as usize {
@@ -113,6 +116,58 @@ impl Network {
             }
         }
         correct as f32 / data.len() as f32
+    }
+
+    fn loss(&self, input: &[f32], label: usize) -> f32 {
+        let (activations, _) = self.forward(input);
+        let output = activations.last().expect("network has an output layer");
+        -(output[label].max(1e-12)).ln()
+    }
+
+    fn backprop(&self, input: &[f32], label: usize) -> (Vec<Matrix>, Vec<Vec<f32>>) {
+        let (activations, pre_activations) = self.forward(input);
+        let layer_count = self.weights.len();
+        let mut grad_weights: Vec<Matrix> = self
+            .weights
+            .iter()
+            .map(|layer| layer.iter().map(|row| vec![0.0; row.len()]).collect())
+            .collect();
+        let mut grad_biases: Vec<Vec<f32>> = self
+            .biases
+            .iter()
+            .map(|layer| vec![0.0; layer.len()])
+            .collect();
+
+        let mut delta = activations[layer_count].clone();
+        delta[label] -= 1.0;
+
+        for layer in (0..layer_count).rev() {
+            for neuron in 0..self.weights[layer].len() {
+                grad_biases[layer][neuron] = delta[neuron];
+                for (input_index, activation) in activations[layer].iter().enumerate() {
+                    grad_weights[layer][neuron][input_index] = delta[neuron] * activation;
+                }
+            }
+
+            if layer > 0 {
+                let mut previous_delta = vec![0.0f32; self.sizes[layer]];
+                for input_neuron in 0..self.sizes[layer] {
+                    let mut sum = 0.0f32;
+                    for neuron in 0..self.weights[layer].len() {
+                        sum += self.weights[layer][neuron][input_neuron] * delta[neuron];
+                    }
+                    previous_delta[input_neuron] = if pre_activations[layer - 1][input_neuron] > 0.0
+                    {
+                        sum
+                    } else {
+                        0.0
+                    };
+                }
+                delta = previous_delta;
+            }
+        }
+
+        (grad_weights, grad_biases)
     }
 
     fn train(
@@ -152,39 +207,16 @@ impl Network {
                 for &index in batch {
                     let input = &data[index];
                     let label = labels[index] as usize;
-                    let (activations, pre_activations) = self.forward(input);
+                    batch_loss += self.loss(input, label) as f64;
+                    let (sample_weights, sample_biases) = self.backprop(input, label);
 
-                    let output = &activations[layer_count];
-                    batch_loss += -(output[label].max(1e-12) as f64).ln();
-
-                    let mut delta = output.clone();
-                    delta[label] -= 1.0;
-
-                    for layer in (0..layer_count).rev() {
+                    for layer in 0..layer_count {
                         for neuron in 0..self.weights[layer].len() {
-                            grad_biases[layer][neuron] += delta[neuron];
-                            for (input_index, activation) in activations[layer].iter().enumerate() {
+                            grad_biases[layer][neuron] += sample_biases[layer][neuron];
+                            for input_index in 0..self.weights[layer][neuron].len() {
                                 grad_weights[layer][neuron][input_index] +=
-                                    delta[neuron] * activation;
+                                    sample_weights[layer][neuron][input_index];
                             }
-                        }
-
-                        if layer > 0 {
-                            let mut previous_delta = vec![0.0f32; self.sizes[layer]];
-                            for input_neuron in 0..self.sizes[layer] {
-                                let mut sum = 0.0f32;
-                                for neuron in 0..self.weights[layer].len() {
-                                    sum +=
-                                        self.weights[layer][neuron][input_neuron] * delta[neuron];
-                                }
-                                previous_delta[input_neuron] =
-                                    if pre_activations[layer - 1][input_neuron] > 0.0 {
-                                        sum
-                                    } else {
-                                        0.0
-                                    };
-                            }
-                            delta = previous_delta;
                         }
                     }
                 }
@@ -266,6 +298,10 @@ impl Network {
             }
             if layer == 0 {
                 sizes.push(dims[1]);
+            } else if dims[1] != *sizes.last().unwrap() {
+                return Err(invalid_data(
+                    "layer input size does not match the previous output size",
+                ));
             }
             sizes.push(dims[0]);
 
@@ -281,6 +317,10 @@ impl Network {
                 rows.push(row);
             }
             weights.push(rows);
+        }
+
+        if sizes.first() != Some(&(28 * 28)) {
+            return Err(invalid_data("network input size must be 784"));
         }
 
         let mut biases = Vec::with_capacity(layer_count);
@@ -337,6 +377,7 @@ fn load_mnist(path: &str) -> io::Result<(Vec<Vec<f32>>, Vec<u8>)> {
 
     for (line_number, line) in BufReader::new(file).lines().enumerate() {
         let line = line?;
+        let line = line.trim_start_matches('\u{feff}');
         if line.trim().is_empty() {
             continue;
         }
@@ -345,7 +386,7 @@ fn load_mnist(path: &str) -> io::Result<(Vec<Vec<f32>>, Vec<u8>)> {
         let first = fields.next().unwrap_or("").trim();
         let label: u8 = match first.parse() {
             Ok(value) => value,
-            Err(_) if line_number == 0 => continue, // optional header row
+            Err(_) if data.is_empty() => continue, // optional header row
             Err(_) => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -353,6 +394,13 @@ fn load_mnist(path: &str) -> io::Result<(Vec<Vec<f32>>, Vec<u8>)> {
                 ))
             }
         };
+
+        if label > 9 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("line {}: label {} is outside 0..=9", line_number + 1, label),
+            ));
+        }
 
         let pixels: Vec<f32> = fields
             .map(|value| value.trim().parse::<f32>().map(|pixel| pixel / 255.0))
@@ -379,13 +427,36 @@ fn load_mnist(path: &str) -> io::Result<(Vec<Vec<f32>>, Vec<u8>)> {
         labels.push(label);
     }
 
+    if data.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "no MNIST rows found",
+        ));
+    }
+
     Ok((data, labels))
 }
 
 fn usage(program: &str) {
     eprintln!(
-        "usage:\n  {program} train <train.csv> <weights.dat> [epochs] [learning-rate] [batch-size]\n  {program} eval <test.csv> <weights.dat>\n  {program} eval <test.csv> <weights.dat>   # default when no arguments are given"
+        "usage:\n  {program} train <train.csv> <weights.dat> [epochs] [learning-rate] [batch-size]\n  {program} eval <test.csv> <weights.dat>\n  {program}                  # defaults to eval mnist_test.csv weights.dat"
     );
+}
+
+fn parse_arg<T: std::str::FromStr>(
+    value: Option<&String>,
+    default: T,
+    name: &str,
+) -> io::Result<T> {
+    match value {
+        Some(raw) => raw.parse().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid {name}: {raw}"),
+            )
+        }),
+        None => Ok(default),
+    }
 }
 
 #[cfg(test)]
@@ -408,6 +479,75 @@ mod tests {
         let sum: f32 = output.iter().sum();
         assert!((sum - 1.0).abs() < 1e-5);
     }
+
+    #[test]
+    fn gradients_match_finite_differences() {
+        let mut rng = SimpleRng::new(7);
+        let mut network = Network::new(&[4, 5, 3], &mut rng);
+        let input = [0.2, 0.4, 0.6, 0.8];
+        let label = 2usize;
+        let (grad_weights, grad_biases) = network.backprop(&input, label);
+        let epsilon = 1e-3f32;
+
+        for layer in 0..network.weights.len() {
+            for neuron in 0..network.weights[layer].len() {
+                let original_bias = network.biases[layer][neuron];
+                network.biases[layer][neuron] = original_bias + epsilon;
+                let plus = network.loss(&input, label);
+                network.biases[layer][neuron] = original_bias - epsilon;
+                let minus = network.loss(&input, label);
+                network.biases[layer][neuron] = original_bias;
+                let numeric = (plus - minus) / (2.0 * epsilon);
+                let analytic = grad_biases[layer][neuron];
+                assert!(
+                    (numeric - analytic).abs() < 5e-3,
+                    "bias gradient mismatch: numeric {numeric}, analytic {analytic}"
+                );
+
+                for input_index in 0..network.weights[layer][neuron].len() {
+                    let original = network.weights[layer][neuron][input_index];
+                    network.weights[layer][neuron][input_index] = original + epsilon;
+                    let plus = network.loss(&input, label);
+                    network.weights[layer][neuron][input_index] = original - epsilon;
+                    let minus = network.loss(&input, label);
+                    network.weights[layer][neuron][input_index] = original;
+                    let numeric = (plus - minus) / (2.0 * epsilon);
+                    let analytic = grad_weights[layer][neuron][input_index];
+                    assert!(
+                        (numeric - analytic).abs() < 5e-3,
+                        "weight gradient mismatch: numeric {numeric}, analytic {analytic}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn training_learns_a_tiny_dataset() {
+        let mut rng = SimpleRng::new(42);
+        let mut network = Network::new(&[4, 8, 3], &mut rng);
+        let mut data = Vec::new();
+        let mut labels = Vec::new();
+
+        for class in 0..3 {
+            for sample in 0..20 {
+                let mut input = vec![0.0f32; 4];
+                input[class] = 1.0;
+                input[3] = sample as f32 * 0.01;
+                data.push(input);
+                labels.push(class as u8);
+            }
+        }
+
+        let before = network.accuracy(&data, &labels);
+        network.train(&data, &labels, 30, 0.1, 6, &mut rng);
+        let after = network.accuracy(&data, &labels);
+        assert!(
+            after > before,
+            "accuracy did not improve: {before} -> {after}"
+        );
+        assert!(after > 0.9, "accuracy after training is {after}");
+    }
 }
 
 fn main() -> io::Result<()> {
@@ -429,18 +569,16 @@ fn main() -> io::Result<()> {
                 process::exit(2);
             }
             let (data, labels) = load_mnist(&args[2])?;
-            let epochs = args
-                .get(4)
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(10);
-            let learning_rate = args
-                .get(5)
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(0.1);
-            let batch_size = args
-                .get(6)
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(32);
+            let epochs: usize = parse_arg(args.get(4), 10, "epochs")?;
+            let learning_rate: f32 = parse_arg(args.get(5), 0.1, "learning rate")?;
+            let batch_size: usize = parse_arg(args.get(6), 32, "batch size")?;
+            if epochs == 0 || batch_size == 0 || !learning_rate.is_finite() || learning_rate <= 0.0
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "epochs, learning rate, and batch size must be positive",
+                ));
+            }
             let mut rng = SimpleRng::new(42);
             let mut network = Network::new(&[784, 128, 64, 10], &mut rng);
 

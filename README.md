@@ -41,7 +41,7 @@ evaluation is deterministic.
 ### 2. Get the MNIST CSV files
 
 The loader accepts the common CSV format with one label and 784 pixel values per
-row. A header row is optional. LeCun's mirror is the usual source:
+row. A header row is optional. A public mirror of the MNIST CSVs is:
 
 ```bash
 curl -LO https://data.pjreddie.com/files/mnist_train.csv
@@ -70,14 +70,18 @@ test accuracy: 97.46%
 ```
 
 Running the binary with no arguments evaluates `mnist_test.csv` against
-`weights.dat`, which matches the original interface.
+`weights.dat`. The old binary also required the training CSV for evaluation;
+the new default does not.
 
 ## Repository layout
 
 ```text
 Cargo.toml    package manifest
+Cargo.lock    locked dependency graph
 main.rs       data loader, network, training loop, evaluation, weight I/O
 weights.dat   trained checkpoint (97.46% test accuracy)
+README.md     this file
+LICENSE       MIT
 ```
 
 ## What this project demonstrates
