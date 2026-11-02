@@ -1,65 +1,95 @@
-# MNIST Handwritten Digit Recognition in Rust
+# MNIST Multilayer Perceptron from Scratch in Rust
 
-This project implements a neural network that performs handwritten digit classification using the MNIST dataset. The code is written in Rust and loads the dataset, preprocesses the data, and evaluates the model on the test set.
+A 784-128-64-10 multilayer perceptron written with the Rust standard library
+only. The forward pass, backward pass, softmax cross-entropy loss, and
+mini-batch SGD are implemented by hand. There is no PyTorch, no ndarray, and no
+other ML crate.
 
-## Features
-- Load MNIST data from CSV files.
-- Normalize pixel values to the range [0, 1].
-- Train a neural network on the training data.
-- Evaluate the trained model on the test set.
-- Calculate accuracy of predictions on the test set.
+This repository started as a CNN learning experiment. The code that survived is
+an MLP, not a convolutional network: there are no convolution or pooling layers.
+The project is now named and documented for what it actually is.
 
-## Prerequisites
-- Rust programming language (version 1.56 or higher).
-- MNIST dataset in CSV format (downloadable from Kaggle).
-- Pretrained weights (weights.dat file).
+## Result
 
-## Dataset
-You need to download the MNIST dataset in CSV format from Kaggle. The dataset can be found [here](https://www.kaggle.com/datasets/oddrationale/mnist-in-csv).
+Trained on the 60,000-image MNIST training set for 12 epochs with mini-batch
+SGD (batch size 32, learning rate 0.1, Xavier-uniform initialization, seed 42):
 
-- **mnist_train.csv**: This file contains the training data with pixel values (each row represents an image of a digit).
-- **mnist_test.csv**: This file contains the test data with pixel values.
+```text
+test accuracy: 97.46%
+```
 
-Once downloaded, place the following files in the project directory:
-- `mnist_train.csv`
-- `mnist_test.csv`
+The committed `weights.dat` is the checkpoint that produced that number. The
+evaluation is deterministic.
 
-## Weights File
-The neural network requires a file `weights.dat` containing the pretrained weights and biases for the network. The weights should be loaded from this file in the code and used during evaluation. This file is assumed to be already generated from a previous training process.
+## Architecture
 
-## Setup
-To build and run this project, follow the steps below:
+```text
+784 inputs -> 128 hidden (ReLU) -> 64 hidden (ReLU) -> 10 outputs (softmax)
+```
+
+- Loss: softmax cross-entropy.
+- Optimizer: mini-batch stochastic gradient descent.
+- Initialization: Xavier uniform, zero biases.
+- Weight layout: one row per neuron, one value per input connection.
+
+## Reproduce
 
 ### 1. Install Rust
-If you haven't installed Rust yet, you can do so by following the instructions at: https://www.rust-lang.org/tools/install
 
-### 2. Clone the Repository
-```bash
-git clone github.com/DeathSurfing/MLP-From-Scratch
-cd MLP-From-Scratch
-```
-### 3. Build the Project
-Run the following command to build the project:
+<https://www.rust-lang.org/tools/install>
+
+### 2. Get the MNIST CSV files
+
+The loader accepts the common CSV format with one label and 784 pixel values per
+row. A header row is optional. LeCun's mirror is the usual source:
 
 ```bash
-cargo build --release
+curl -LO https://data.pjreddie.com/files/mnist_train.csv
+curl -LO https://data.pjreddie.com/files/mnist_test.csv
 ```
-### 4. Run the Project
-Once the project is built, you can run it using the following command:
+
+### 3. Train
 
 ```bash
-cargo run
+cargo run --release -- train mnist_train.csv weights.dat 12 0.1 32
 ```
-### 5. View the Results
-The program will load the training and test datasets, load the pretrained weights, and calculate the accuracy of the model on the test dataset. The accuracy will be displayed in the terminal.
 
-File Structure
+Arguments are `train <csv> <weights-out> [epochs] [learning-rate] [batch-size]`.
+The command prints the mean loss for each epoch and writes the weight file.
+
+### 4. Evaluate
+
 ```bash
-/src
-  main.rs           - Main code implementing the neural network and data processing.
-  /weights.dat      - Pretrained weights and biases.
-  /mnist_train.csv  - MNIST training dataset.
-  /mnist_test.csv   - MNIST test dataset.
+cargo run --release -- eval mnist_test.csv weights.dat
 ```
-License
-This project is licensed under the MIT License - see the LICENSE file for details.
+
+Expected output:
+
+```text
+test accuracy: 97.46%
+```
+
+Running the binary with no arguments evaluates `mnist_test.csv` against
+`weights.dat`, which matches the original interface.
+
+## Repository layout
+
+```text
+Cargo.toml    package manifest
+main.rs       data loader, network, training loop, evaluation, weight I/O
+weights.dat   trained checkpoint (97.46% test accuracy)
+```
+
+## What this project demonstrates
+
+- A hand-written forward pass and backpropagation for a dense network.
+- A from-scratch training loop with mini-batch SGD.
+- A documented, reproducible training and evaluation workflow.
+- A measured result, not an asserted one.
+
+It does not demonstrate convolutional layers, pooling, or a CNN. The old
+"CNN from scratch" description was inaccurate and has been removed.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

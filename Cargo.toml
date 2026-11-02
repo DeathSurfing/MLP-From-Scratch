@@ -1,0 +1,10 @@
+[package]
+name = "mnist-mlp"
+version = "0.1.0"
+edition = "2021"
+description = "A multilayer perceptron written from scratch in Rust"
+license = "MIT"
+
+[[bin]]
+name = "mnist-mlp"
+path = "main.rs"
